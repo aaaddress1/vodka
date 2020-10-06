@@ -1,6 +1,5 @@
-﻿// vodka.cpp : 此檔案包含 'main' 函式。程式會於該處開始執行及結束執行。
-//
-
+#include <string.h>
+using namespace std;
 #include <iostream>
 #include <windows.h>
 #include <fstream>
@@ -72,6 +71,63 @@ struct MDStreamHeader {
 	ULONGLONG Sorted;
 };
 
+string* maskLookupTable = new string[64]{ 
+	"Module",
+	"TypeRef",
+	"TypeDef",
+	"FieldPtr",
+	"Field",
+	"MethmodPtr",
+	"Method",
+	"ParamPtr",
+	"Param",
+	"InterfaceImpl",
+	"MemberRef",
+	"Constant",
+	"CustomAttribute",
+	"FieldMarshal",
+	"DeclSecurity",
+	"ClassLayout",
+	"FieldLayout",
+	"StandAloneSig",
+	"EventMap",
+	"EventPtr",
+	"Event",
+	"PropertyMap",
+	"PropertyPtr",
+	"Property",
+	"MethodSemantics",
+	"MethodImpl",
+	"ModuleRef",
+	"TypeSpec",
+	"ImplMap",
+	"FieldRVA",
+	"ENCLog",
+	"ENCMap",
+	"Assembly",
+	"AssemblyProcessor",
+	"AssemblyOS",
+	"AssemblyRef",
+	"AssemblyRefProcessor",
+	"AssemblyRefOS",
+	"File",
+	"ExportedType",
+	"ManifestResource",
+	"NestedClass",
+	"GenericParam",
+	"MethodSpec",
+	"GenericParamConstraint"
+};
+
+
+typedef struct Module_Struct {
+	WORD    Generation;
+	WORD    Name;   
+	WORD    Mvid; 
+	WORD    EncId; 
+	WORD    EncBaseId; 
+} METADATA_HEADER;
+
 int main(int argc, char** argv)
 {
 	if (argc != 2) {
@@ -79,7 +135,7 @@ int main(int argc, char** argv)
 		return 0;
 	}
 	LONGLONG peSize;
-	BYTE* peData = MapFileToMemory(/*"C:/dotNet_PoC.exe"*/argv[1], peSize);
+	BYTE* peData = MapFileToMemory(argv[1], peSize);
 	char* dynImg = dumpMappedImg((char*)peData);
 
 	PIMAGE_DOS_HEADER dosHdr = (PIMAGE_DOS_HEADER)dynImg;
@@ -98,17 +154,34 @@ int main(int argc, char** argv)
 	printf("[+] Decode DotNet Binary Stream...\n");
 	MDStreamHeader* mdStream = NULL;
 	STORAGESTREAM* stream = (STORAGESTREAM*)((size_t)pMetaDataHdr + sizeof(*pMetaDataHdr));
+	char* ptrStreamStrings = 0;
 	for (size_t i = 0; i < pMetaDataHdr->iStreams; i++)
 	{
 		printf("\t#%i found record  %s at %x [size = %i bytes.]\n", i, &stream->rcName, stream->iOffset, stream->iSize);
-		
+
 		if (!strcmp((char*)&stream->rcName, "#~"))
 			mdStream = (MDStreamHeader*)((size_t)pMetaData + stream->iOffset);
-		
-		size_t streamNameSize = P2ALIGNUP(strlen((char *)&stream->rcName), 4);
+		else if (!strcmp((char*)&stream->rcName, "#Strings"))
+			ptrStreamStrings = (char *)pMetaData + stream->iOffset;
+
+		size_t streamNameSize = P2ALIGNUP(strlen((char*)&stream->rcName), 4);
 		stream = (STORAGESTREAM*)((size_t)&stream->rcName + streamNameSize);
 	}
+	
+	printf("\n[+] Parse Table\n");
+	int tableCount = 0;
+	char* lookupTbArr = (char*)&mdStream->Sorted + sizeof(mdStream->Sorted);
+	for (uint64_t i = 0; i < 45; i++) {
+		if (mdStream->MaskValid & ((uint64_t)1 << (uint64_t)i)) {
+			tableCount++;
+			uint32_t itemCount = *(uint32_t*)(lookupTbArr);
+			cout << "\tfound table#" << i << " - " << maskLookupTable[i] << " [count = " << itemCount << "]" << endl;
+			lookupTbArr += sizeof(uint32_t);
+		}
+	}
 
+	Module_Struct p = *(Module_Struct*)lookupTbArr;
+	printf("\n[+] Detect Compiled .NET Module [%s]\n", (ptrStreamStrings + p.Name));
 
 
 }
